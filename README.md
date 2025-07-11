@@ -75,9 +75,13 @@ Optional
 ├── job_type (str): 
 |    fulltime, parttime, internship, contract
 │
-├── proxies (list): 
+├── proxies (list):
 |    in format ['user:pass@host:port', 'localhost']
 |    each job board scraper will round robin through the proxies
+│
+├── user_agents (list|str):
+|    rotate through these user agent strings for all requests
+|    (defaults to a dynamically updated list of modern agents)
 |
 ├── is_remote (bool)
 │
