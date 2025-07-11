@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from itertools import cycle
+from typing import Iterable
 
 import numpy as np
 import requests
@@ -12,6 +13,7 @@ from markdownify import markdownify as md
 from requests.adapters import HTTPAdapter, Retry
 
 from jobspy.model import CompensationInterval, JobType, Site
+from jobspy.user_agents import DEFAULT_USER_AGENTS
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -52,9 +54,29 @@ class RotatingProxySession:
         return {"http": f"http://{proxy}", "https": f"http://{proxy}"}
 
 
-class RequestsRotating(RotatingProxySession, requests.Session):
-    def __init__(self, proxies=None, has_retry=False, delay=1, clear_cookies=False):
+class RotatingUserAgent:
+    def __init__(self, user_agents: Iterable[str] | None = None):
+        if user_agents is None:
+            user_agents = DEFAULT_USER_AGENTS
+        elif isinstance(user_agents, str):
+            user_agents = [user_agents]
+        self.user_agent_cycle = cycle(user_agents)
+
+    def get_user_agent(self) -> str:
+        return next(self.user_agent_cycle)
+
+
+class RequestsRotating(RotatingProxySession, RotatingUserAgent, requests.Session):
+    def __init__(
+        self,
+        proxies=None,
+        has_retry=False,
+        delay=1,
+        clear_cookies=False,
+        user_agents=None,
+    ):
         RotatingProxySession.__init__(self, proxies=proxies)
+        RotatingUserAgent.__init__(self, user_agents=user_agents)
         requests.Session.__init__(self)
         self.clear_cookies = clear_cookies
         self.allow_redirects = True
@@ -83,12 +105,16 @@ class RequestsRotating(RotatingProxySession, requests.Session):
                 self.proxies = next_proxy
             else:
                 self.proxies = {}
+        headers = kwargs.get("headers", {})
+        headers["user-agent"] = self.get_user_agent()
+        kwargs["headers"] = headers
         return requests.Session.request(self, method, url, **kwargs)
 
 
-class TLSRotating(RotatingProxySession, tls_client.Session):
-    def __init__(self, proxies=None):
+class TLSRotating(RotatingProxySession, RotatingUserAgent, tls_client.Session):
+    def __init__(self, proxies=None, user_agents=None):
         RotatingProxySession.__init__(self, proxies=proxies)
+        RotatingUserAgent.__init__(self, user_agents=user_agents)
         tls_client.Session.__init__(self, random_tls_extension_order=True)
 
     def execute_request(self, *args, **kwargs):
@@ -98,6 +124,9 @@ class TLSRotating(RotatingProxySession, tls_client.Session):
                 self.proxies = next_proxy
             else:
                 self.proxies = {}
+        headers = kwargs.get("headers", {})
+        headers["user-agent"] = self.get_user_agent()
+        kwargs["headers"] = headers
         response = tls_client.Session.execute_request(self, *args, **kwargs)
         response.ok = response.status_code in range(200, 400)
         return response
@@ -111,19 +140,21 @@ def create_session(
     has_retry: bool = False,
     delay: int = 1,
     clear_cookies: bool = False,
+    user_agents: Iterable[str] | str | None = None,
 ) -> requests.Session:
     """
     Creates a requests session with optional tls, proxy, and retry settings.
     :return: A session object
     """
     if is_tls:
-        session = TLSRotating(proxies=proxies)
+        session = TLSRotating(proxies=proxies, user_agents=user_agents)
     else:
         session = RequestsRotating(
             proxies=proxies,
             has_retry=has_retry,
             delay=delay,
             clear_cookies=clear_cookies,
+            user_agents=user_agents,
         )
 
     if ca_cert:
