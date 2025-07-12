@@ -144,19 +144,22 @@ class Country(Enum):
 
     @property
     def indeed_domain_value(self):
-        subdomain, _, api_country_code = self.value[1].partition(":")
-        if subdomain and api_country_code:
-            return subdomain, api_country_code.upper()
-        return self.value[1], self.value[1].upper()
+        if len(self.value) < 2:
+            return None, None
+        indeed_val = self.value[1]
+        subdomain, _, api_country_code = indeed_val.partition(":")
+        if not api_country_code:  # If no colon was found
+            api_country_code = subdomain
+        return subdomain, api_country_code.upper()
 
     @property
     def glassdoor_domain_value(self):
-        if len(self.value) == 3:
-            subdomain, _, domain = self.value[2].partition(":")
-            if subdomain and domain:
+        if len(self.value) >= 3:
+            glassdoor_val = self.value[2]
+            subdomain, _, domain = glassdoor_val.partition(":")
+            if domain:
                 return f"{subdomain}.glassdoor.{domain}"
-            else:
-                return f"www.glassdoor.{self.value[2]}"
+            return f"www.glassdoor.{glassdoor_val}"
         else:
             raise Exception(f"Glassdoor is not available for {self.name}")
 
@@ -316,6 +319,7 @@ class ScraperInput(BaseModel):
 
     results_wanted: int = 15
     hours_old: int | None = None
+    is_tls: bool = False
 
 
 class Scraper(ABC):

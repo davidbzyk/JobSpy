@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import re
 import json
-from typing import Tuple
+from typing import Tuple, List, Any, Optional
 from datetime import datetime, timedelta
 
 from jobspy.google.constant import headers_jobs, headers_initial, async_param
@@ -18,6 +18,15 @@ from jobspy.model import (
 )
 from jobspy.util import extract_emails_from_text, extract_job_type, create_session
 from jobspy.google.util import log, find_job_info_initial_page, find_job_info
+
+
+def _get_from_list(data: List[Any], indexes: List[int], default: Optional[Any] = None) -> Optional[Any]:
+    """Safely get a value from a nested list."""
+    for index in indexes:
+        if not isinstance(data, list) or index >= len(data):
+            return default
+        data = data[index]
+    return data
 
 
 class Google(Scraper):
@@ -48,7 +57,10 @@ class Google(Scraper):
         self.scraper_input.results_wanted = min(900, scraper_input.results_wanted)
 
         self.session = create_session(
-            proxies=self.proxies, ca_cert=self.ca_cert, is_tls=False, has_retry=True
+            proxies=self.proxies,
+            ca_cert=self.ca_cert,
+            is_tls=self.scraper_input.is_tls,
+            has_retry=True,
         )
         forward_cursor, job_list = self._get_initial_cursor_and_jobs()
         if forward_cursor is None:
@@ -165,38 +177,45 @@ class Google(Scraper):
         return jobs_on_page, data_async_fc
 
     def _parse_job(self, job_info: list):
-        job_url = job_info[3][0][0] if job_info[3] and job_info[3][0] else None
-        if job_url in self.seen_urls:
+        job_url = _get_from_list(job_info, [3, 0, 0])
+        if not job_url or job_url in self.seen_urls:
             return
         self.seen_urls.add(job_url)
 
-        title = job_info[0]
-        company_name = job_info[1]
-        location = city = job_info[2]
+        title = _get_from_list(job_info, [0])
+        company_name = _get_from_list(job_info, [1])
+        location = city = _get_from_list(job_info, [2])
         state = country = date_posted = None
         if location and "," in location:
-            city, state, *country = [*map(lambda x: x.strip(), location.split(","))]
+            parts = [part.strip() for part in location.split(",")]
+            city = parts[0]
+            state = parts[1] if len(parts) > 1 else None
+            country = parts[2] if len(parts) > 2 else None
 
-        days_ago_str = job_info[12]
-        if type(days_ago_str) == str:
+        days_ago_str = _get_from_list(job_info, [12])
+        if isinstance(days_ago_str, str):
             match = re.search(r"\d+", days_ago_str)
-            days_ago = int(match.group()) if match else None
-            date_posted = (datetime.now() - timedelta(days=days_ago)).date()
+            if match:
+                days_ago = int(match.group())
+                date_posted = (datetime.now() - timedelta(days=days_ago)).date()
 
-        description = job_info[19]
+        description = _get_from_list(job_info, [19], "")  # Default to empty string
+
+        job_id = _get_from_list(job_info, [28])
+        if not job_id:
+            log.warning(f"Could not parse job ID for a Google job, skipping.")
+            return
 
         job_post = JobPost(
-            id=f"go-{job_info[28]}",
+            id=f"go-{job_id}",
             title=title,
             company_name=company_name,
-            location=Location(
-                city=city, state=state, country=country[0] if country else None
-            ),
+            location=Location(city=city, state=state, country=country),
             job_url=job_url,
             date_posted=date_posted,
             is_remote="remote" in description.lower() or "wfh" in description.lower(),
             description=description,
             emails=extract_emails_from_text(description),
-            job_type=extract_job_type(description),
+            job_type=extract_job_type(description or ""),
         )
         return job_post

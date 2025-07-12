@@ -23,6 +23,7 @@ from jobspy.util import (
     create_session,
     create_logger,
 )
+import cloudscraper  # Added for Cloudflare bypass
 
 log = create_logger("Indeed")
 
@@ -36,12 +37,25 @@ class Indeed(Scraper):
         """
         super().__init__(Site.INDEED, proxies=proxies)
 
-        self.session = create_session(
-            proxies=self.proxies,
-            ca_cert=ca_cert,
-            is_tls=True,
-            client_identifier="safari_ioss_17_0",
-        )
+        # Use CloudScraper instead of regular session to bypass Cloudflare
+        self.session = cloudscraper.create_scraper()
+        
+        # Apply proxy configuration if provided
+        if self.proxies:
+            if isinstance(self.proxies, list):
+                proxy_url = self.proxies[0]  # Use first proxy
+            else:
+                proxy_url = self.proxies
+            
+            # Format proxy for requests
+            if not proxy_url.startswith(('http://', 'https://', 'socks5://')):
+                proxy_url = f'http://{proxy_url}'
+                
+            self.session.proxies = {
+                'http': proxy_url,
+                'https': proxy_url
+            }
+            log.info(f"Indeed using CloudScraper with proxy: {proxy_url}")
         self.scraper_input = None
         self.jobs_per_page = 100
         self.num_workers = 10
@@ -62,6 +76,18 @@ class Indeed(Scraper):
         self.base_url = f"https://{domain}.indeed.com"
         headers = api_headers.copy()
         headers["indeed-co"] = self.api_country_code
+        
+        # Get current user agent from session and update headers to match
+        # This ensures the API headers match the TLS fingerprint
+        if hasattr(self.session, 'get_user_agent'):
+            current_user_agent = self.session.get_user_agent()
+            headers["user-agent"] = current_user_agent
+            # Update app info to match current user agent iOS version
+            if "iPhone OS 18_5" in current_user_agent:
+                headers["indeed-app-info"] = "appv=220.0; appid=com.indeed.jobsearch; osv=18.5; os=ios; dtype=phone"
+            elif "iPhone OS 18_" in current_user_agent:
+                headers["indeed-app-info"] = "appv=220.0; appid=com.indeed.jobsearch; osv=18.4; os=ios; dtype=phone"
+        
         job_list = []
         page = 1
 
@@ -117,7 +143,7 @@ class Indeed(Scraper):
             self.api_url,
             headers=headers,
             json=payload,
-            timeout_seconds=10,
+            timeout=10,  # CloudScraper uses timeout instead of timeout_seconds
         )
         if not response.ok:
             log.info(

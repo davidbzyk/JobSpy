@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from bs4 import BeautifulSoup
+import cloudscraper  # Added for Cloudflare bypass
 
 from jobspy.ziprecruiter.constant import headers, get_cookie_data
 from jobspy.util import (
@@ -41,18 +42,63 @@ class ZipRecruiter(Scraper):
         self, proxies: list[str] | str | None = None, ca_cert: str | None = None
     ):
         """
-        Initializes ZipRecruiterScraper with the ZipRecruiter job search url
+        Initializes ZipRecruiterScraper with CloudScraper to bypass Cloudflare
         """
         super().__init__(Site.ZIP_RECRUITER, proxies=proxies)
 
         self.scraper_input = None
-        self.session = create_session(proxies=proxies, ca_cert=ca_cert)
+        
+        # Use CloudScraper instead of regular session to bypass Cloudflare
+        self.session = cloudscraper.create_scraper()
+        
+        # Setup proxy rotation for residential proxies
+        self.proxy_rotation = self._setup_proxy_rotation()
+        
+        # Apply the ZipRecruiter headers
         self.session.headers.update(headers)
         self._get_cookies()
 
         self.delay = 5
         self.jobs_per_page = 20
         self.seen_urls = set()
+
+    def _setup_proxy_rotation(self):
+        """
+        Sets up proxy rotation for residential proxies
+        """
+        if not self.proxies:
+            log.info("ZipRecruiter using CloudScraper without proxy")
+            return None
+        
+        if isinstance(self.proxies, str):
+            proxy_list = [self.proxies]
+        else:
+            proxy_list = self.proxies
+        
+        from itertools import cycle
+        proxy_cycle = cycle(proxy_list)
+        log.info(f"ZipRecruiter using CloudScraper with {len(proxy_list)} rotating proxies")
+        return proxy_cycle
+
+    def _format_proxy(self, proxy):
+        """
+        Formats a proxy string for use with requests
+        """
+        if proxy.startswith("http://") or proxy.startswith("https://"):
+            return {"http": proxy, "https": proxy}
+        if proxy.startswith("socks5://"):
+            return {"http": proxy, "https": proxy}
+        return {"http": f"http://{proxy}", "https": f"http://{proxy}"}
+
+    def _rotate_proxy(self):
+        """
+        Rotates to the next proxy in the cycle
+        """
+        if self.proxy_rotation:
+            next_proxy = next(self.proxy_rotation)
+            formatted_proxy = self._format_proxy(next_proxy)
+            self.session.proxies = formatted_proxy
+            log.debug(f"Rotated to proxy: {next_proxy}")
 
     def scrape(self, scraper_input: ScraperInput) -> JobResponse:
         """
@@ -96,6 +142,8 @@ class ZipRecruiter(Scraper):
         if continue_token:
             params["continue_from"] = continue_token
         try:
+            # Rotate proxy for each page request
+            self._rotate_proxy()
             res = self.session.get(f"{self.api_url}/jobs-app/jobs", params=params)
             if res.status_code not in range(200, 400):
                 if res.status_code == 429:
@@ -177,6 +225,8 @@ class ZipRecruiter(Scraper):
         )
 
     def _get_descr(self, job_url):
+        # Rotate proxy for job description requests
+        self._rotate_proxy()
         res = self.session.get(job_url, allow_redirects=True)
         description_full = job_url_direct = None
         if res.ok:
@@ -215,5 +265,7 @@ class ZipRecruiter(Scraper):
         """
         Sends a session event to the API with device properties.
         """
+        # Rotate proxy for cookie requests
+        self._rotate_proxy()
         url = f"{self.api_url}/jobs-app/event"
         self.session.post(url, data=get_cookie_data)

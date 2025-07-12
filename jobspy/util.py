@@ -121,7 +121,13 @@ class TLSRotating(RotatingProxySession, RotatingUserAgent, tls_client.Session):
         if "user-agent" not in headers:
             headers["user-agent"] = self.get_user_agent()
             kwargs["headers"] = headers
-        self.logger.debug(f"Requesting {args[0]} {args[1]} with headers: {headers}")
+        
+        # Debug logging - check if args has the expected elements
+        if len(args) >= 2:
+            self.logger.debug(f"Requesting {args[0]} {args[1]} with headers: {headers}")
+        else:
+            self.logger.debug(f"Requesting with args: {args} and headers: {headers}")
+        
         response = tls_client.Session.execute_request(self, *args, **kwargs)
         response.ok = response.status_code in range(200, 400)
         return response
@@ -146,7 +152,7 @@ def create_session(
         session = TLSRotating(
             proxies=proxies,
             user_agents=user_agents,
-            client_identifier=client_identifier,
+            client_identifier=client_identifier or "chrome_120",
         )
     else:
         session = RequestsRotating(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import json
 import requests
-from typing import Tuple
+from typing import Tuple, Optional
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -61,7 +61,10 @@ class Glassdoor(Scraper):
         self.base_url = self.scraper_input.country.get_glassdoor_url()
 
         self.session = create_session(
-            proxies=self.proxies, ca_cert=self.ca_cert, has_retry=True
+            proxies=self.proxies,
+            ca_cert=self.ca_cert,
+            has_retry=True,
+            is_tls=scraper_input.is_tls,
         )
         token = self._get_csrf_token()
         headers["gd-csrf-token"] = token if token else fallback_token
@@ -117,7 +120,13 @@ class Glassdoor(Scraper):
             if response.status_code != 200:
                 exc_msg = f"bad response status code: {response.status_code}"
                 raise GlassdoorException(exc_msg)
-            res_json = response.json()[0]
+
+            res_json_list = response.json()
+            if not res_json_list:
+                log.warning("Glassdoor API returned an empty list. This could be due to a block or no results.")
+                return jobs, None
+            res_json = res_json_list[0]
+
             if "errors" in res_json:
                 raise ValueError("Error encountered in API response")
         except (
@@ -244,42 +253,53 @@ class Glassdoor(Scraper):
                 """,
             }
         ]
-        res = requests.post(url, json=body, headers=headers)
+        res = self.session.post(url, json=body, headers=headers)
         if res.status_code != 200:
             return None
-        data = res.json()[0]
-        desc = data["data"]["jobview"]["job"]["description"]
+
+        json_response = res.json()
+        if not json_response:
+            return None
+
+        desc = json_response[0]["data"]["jobview"]["job"]["description"]
         if self.scraper_input.description_format == DescriptionFormat.MARKDOWN:
             desc = markdown_converter(desc)
         return desc
 
-    def _get_location(self, location: str, is_remote: bool) -> (int, str):
+    def _get_location(
+        self, location: str, is_remote: bool
+    ) -> Tuple[Optional[int], Optional[str]]:
         if not location or is_remote:
             return "11047", "STATE"  # remote options
         url = f"{self.base_url}/findPopularLocationAjax.htm?maxLocationsToReturn=10&term={location}"
-        res = self.session.get(url)
-        if res.status_code != 200:
-            if res.status_code == 429:
-                err = f"429 Response - Blocked by Glassdoor for too many requests"
-                log.error(err)
-                return None, None
-            else:
-                err = f"Glassdoor response status code {res.status_code}"
-                err += f" - {res.text}"
-                log.error(f"Glassdoor response status code {res.status_code}")
-                return None, None
-        items = res.json()
+        try:
+            res = self.session.get(url)
+            if res.status_code != 200:
+                raise Exception(f"HTTP {res.status_code}")
+            items = res.json()
+        except (Exception, json.JSONDecodeError) as e:
+            log.error(f"Glassdoor location search failed for '{location}': {e}")
+            return None, None
 
-        if not items:
-            raise ValueError(f"Location '{location}' not found on Glassdoor")
-        location_type = items[0]["locationType"]
+        if not isinstance(items, list) or not items:
+            log.warning(
+                f"Location '{location}' not found on Glassdoor or invalid format received."
+            )
+            return None, None
+
+        first_item = items[0]
+        if not isinstance(first_item, dict) or "locationId" not in first_item or "locationType" not in first_item:
+            log.warning(f"Invalid location data received from Glassdoor: {first_item}")
+            return None, None
+
+        location_type = first_item["locationType"]
         if location_type == "C":
             location_type = "CITY"
         elif location_type == "S":
             location_type = "STATE"
         elif location_type == "N":
             location_type = "COUNTRY"
-        return int(items[0]["locationId"]), location_type
+        return int(first_item["locationId"]), location_type
 
     def _add_payload(
         self,

@@ -156,6 +156,7 @@ def scrape_jobs(
         linkedin_company_ids=linkedin_company_ids,
         offset=offset,
         hours_old=hours_old,
+        is_tls=kwargs.get("is_tls", False),
     )
 
     def scrape_site(site: Site) -> Tuple[str, JobResponse]:

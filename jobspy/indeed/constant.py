@@ -97,6 +97,7 @@ job_search_query = """
     }}
     """
 
+# Updated headers with current iOS version and app version
 api_headers = {
     "Host": "apis.indeed.com",
     "content-type": "application/json",
@@ -104,6 +105,8 @@ api_headers = {
     "accept": "application/json",
     "indeed-locale": "en-US",
     "accept-language": "en-US,en;q=0.9",
-    "indeed-app-info": "appv=205.0; appid=com.indeed.jobsearch; osv=17.4.1; os=ios; dtype=phone",
-    "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1",
+    # Updated to current iOS version and more recent app version
+    "indeed-app-info": "appv=220.0; appid=com.indeed.jobsearch; osv=18.5; os=ios; dtype=phone",
+    # Updated to current iOS version
+    "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
 }
