@@ -104,6 +104,6 @@ api_headers = {
     "accept": "application/json",
     "indeed-locale": "en-US",
     "accept-language": "en-US,en;q=0.9",
-    "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Indeed App 193.1",
-    "indeed-app-info": "appv=193.1; appid=com.indeed.jobsearch; osv=16.6.1; os=ios; dtype=phone",
+    "indeed-app-info": "appv=205.0; appid=com.indeed.jobsearch; osv=17.4.1; os=ios; dtype=phone",
+    "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1",
 }

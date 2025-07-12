@@ -16,6 +16,7 @@ from jobspy.model import (
     JobType,
     DescriptionFormat,
 )
+from jobspy.user_agents import get_mobile_user_agents
 from jobspy.util import (
     extract_emails_from_text,
     markdown_converter,
@@ -36,7 +37,10 @@ class Indeed(Scraper):
         super().__init__(Site.INDEED, proxies=proxies)
 
         self.session = create_session(
-            proxies=self.proxies, ca_cert=ca_cert, is_tls=False
+            proxies=self.proxies,
+            ca_cert=ca_cert,
+            is_tls=True,
+            client_identifier="safari_ioss_17_0",
         )
         self.scraper_input = None
         self.jobs_per_page = 100
@@ -56,8 +60,8 @@ class Indeed(Scraper):
         self.scraper_input = scraper_input
         domain, self.api_country_code = self.scraper_input.country.indeed_domain_value
         self.base_url = f"https://{domain}.indeed.com"
-        self.headers = api_headers.copy()
-        self.headers["indeed-co"] = self.scraper_input.country.indeed_domain_value
+        headers = api_headers.copy()
+        headers["indeed-co"] = self.api_country_code
         job_list = []
         page = 1
 
@@ -67,7 +71,7 @@ class Indeed(Scraper):
             log.info(
                 f"search page: {page} / {math.ceil(scraper_input.results_wanted / self.jobs_per_page)}"
             )
-            jobs, cursor = self._scrape_page(cursor)
+            jobs, cursor = self._scrape_page(cursor, headers)
             if not jobs:
                 log.info(f"found no jobs on page: {page}")
                 break
@@ -80,7 +84,7 @@ class Indeed(Scraper):
             ]
         )
 
-    def _scrape_page(self, cursor: str | None) -> Tuple[list[JobPost], str | None]:
+    def _scrape_page(self, cursor: str | None, headers: dict) -> Tuple[list[JobPost], str | None]:
         """
         Scrapes a page of Indeed for jobs with scraper_input criteria
         :param cursor:
@@ -108,14 +112,12 @@ class Indeed(Scraper):
         payload = {
             "query": query,
         }
-        api_headers_temp = api_headers.copy()
-        api_headers_temp["indeed-co"] = self.api_country_code
+        log.debug(f"Requesting {self.api_url} with headers: {headers}")
         response = self.session.post(
             self.api_url,
-            headers=api_headers_temp,
+            headers=headers,
             json=payload,
-            timeout=10,
-            verify=False,
+            timeout_seconds=10,
         )
         if not response.ok:
             log.info(

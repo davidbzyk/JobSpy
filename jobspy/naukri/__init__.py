@@ -6,6 +6,7 @@ import time
 from datetime import datetime, date, timedelta
 from typing import Optional
 
+from bs4 import BeautifulSoup
 import regex as re
 import requests
 
@@ -164,13 +165,15 @@ class Naukri(Scraper):
         date_posted = self._parse_date(job.get("footerPlaceholderLabel"), job.get("createdDate"))
 
         job_url = f"https://www.naukri.com{job.get('jdURL', f'/job/{job_id}')}"
-        description = job.get("jobDescription") if full_descr else None
-        if description and self.scraper_input.description_format == DescriptionFormat.MARKDOWN:
-            description = markdown_converter(description)
+        description_html = job.get("jobDescription") if full_descr else None
+        description_final = description_html
+        if description_html and self.scraper_input.description_format == DescriptionFormat.MARKDOWN:
+            description_final = markdown_converter(description_html)
 
-        job_type = parse_job_type(description) if description else None
-        company_industry = parse_company_industry(description) if description else None
-        is_remote = is_job_remote(title, description or "", location)
+        description_soup = BeautifulSoup(description_html, "html.parser") if description_html else None
+        job_type = parse_job_type(description_soup) if description_soup else None
+        company_industry = parse_company_industry(description_soup) if description_soup else None
+        is_remote = is_job_remote(title, description_html or "", location)
         company_logo = job.get("logoPathV3") or job.get("logoPath")
 
         # Naukri-specific fields
@@ -180,7 +183,7 @@ class Naukri(Scraper):
         company_rating = float(ambition_box.get("AggregateRating")) if ambition_box.get("AggregateRating") else None
         company_reviews_count = ambition_box.get("ReviewsCount")
         vacancy_count = job.get("vacancy")
-        work_from_home_type = self._infer_work_from_home_type(job.get("placeholders", []), title, description or "")
+        work_from_home_type = self._infer_work_from_home_type(job.get("placeholders", []), title, description_html or "")
 
         job_post = JobPost(
             id=f"nk-{job_id}",
@@ -194,8 +197,8 @@ class Naukri(Scraper):
             compensation=compensation,
             job_type=job_type,
             company_industry=company_industry,
-            description=description,
-            emails=extract_emails_from_text(description or ""),
+            description=description_final,
+            emails=extract_emails_from_text(description_html or ""),
             company_logo=company_logo,
             skills=skills,
             experience_range=experience_range,
